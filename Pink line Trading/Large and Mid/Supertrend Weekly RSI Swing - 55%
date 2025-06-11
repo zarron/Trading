@@ -1,0 +1,30 @@
+//@version=5
+strategy("Supertrend Weekly RSI Swing", overlay=true)
+
+// Inputs
+supertrendPeriod = input.int(10, title="Supertrend Period", minval=1)
+supertrendFactor = input.int(3, title="Supertrend Factor", minval=1)
+rsiPeriod = input.int(14, title="Weekly RSI Period", minval=1)
+rsiThreshold = input.int(60, title="Weekly RSI Threshold", minval=50)
+
+// Supertrend (on daily timeframe)
+[supertrend, direction] = ta.supertrend(supertrendPeriod, supertrendFactor)
+
+// Weekly RSI
+weeklyRSI = request.security(syminfo.tickerid, "W", ta.rsi(close, rsiPeriod), lookahead=barmerge.lookahead_on)
+
+// Buy signal: Supertrend bullish, Weekly RSI > 60
+buySignal = ta.crossover(close, supertrend[1]) and weeklyRSI > rsiThreshold
+
+// Sell signal: Supertrend bearish
+sellSignal = ta.crossunder(close, supertrend[1])
+
+// Entry and exit
+strategy.entry("Buy", strategy.long, when=buySignal)
+if sellSignal
+    strategy.close("Buy")
+
+// Plots
+// plot(supertrend, color=direction == -1 ? color.green : color.red, title="Supertrend")
+// plotshape(buySignal, title="Buy Signal", location=location.belowbar, color=color.green, style=shape.triangleup, size=size.small)
+// plotshape(sellSignal, title="Sell Signal", location=location.abovebar, color=color.red, style=shape.triangledown, size=size.small)
