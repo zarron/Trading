@@ -1,0 +1,136 @@
+ 
+//@version=5
+strategy("Enhanced BTST v4", overlay=true, initial_capital=100000, default_qty_type=strategy.percent_of_equity, default_qty_value=20)
+
+// Inputs
+rsi_period = input.int(14, "RSI Period")
+rsi_oversold = input.int(40, "RSI Above Level")
+volume_threshold = input.float(1.2, "Volume Multiplier")
+stop_loss = input.float(2.5, "Stop Loss %")
+target1 = input.float(1.8, "Target 1 %")
+target2 = input.float(3.5, "Target 2 %")
+
+// Enhanced time settings
+buy_start_hour = 14
+buy_start_min = 30
+buy_end_hour = 15
+buy_end_min = 0
+sell_hour = 9
+sell_min = 30
+
+// Track entry details
+var float entry_price = na
+var int entry_time = na
+var bool position_active = false
+
+// Advanced indicators
+rsi = ta.rsi(close, rsi_period)
+ema9 = ta.ema(close, 9)
+ema21 = ta.ema(close, 21)
+sma50 = ta.sma(close, 50)
+atr = ta.atr(14)
+volume_avg = ta.sma(volume, 20)
+
+// Time calculations
+current_time = hour * 100 + minute
+buy_window = current_time >= (buy_start_hour * 100 + buy_start_min) and current_time <= (buy_end_hour * 100 + buy_end_min)
+sell_time_exact = current_time == (sell_hour * 100 + sell_min)
+
+// Enhanced entry conditions - Balanced for more trades
+basic_uptrend = close > ema21 and ema21 > sma50
+rsi_favorable = rsi > rsi_oversold
+bullish_momentum = close > open and close > close[1]
+volume_confirmation = volume > volume_avg * volume_threshold
+price_strength = close > ema9
+
+// Market structure - Simplified
+trend_alignment = close > ema9 or close > close[2]  // Either short-term trend or 3-day momentum
+
+// Buy signal - Balanced conditions for more trades
+buy_signal = buy_window and 
+             basic_uptrend and 
+             rsi_favorable and 
+             bullish_momentum and 
+             volume_confirmation and 
+             (price_strength or trend_alignment) and
+             strategy.position_size == 0
+
+// Time-based exit logic
+time_since_entry = not na(entry_time) ? (time - entry_time) / (1000 * 60 * 60) : 0
+is_next_trading_day = time_since_entry >= 16
+
+// Smart exit conditions  
+sell_signal = strategy.position_size > 0 and sell_time_exact and is_next_trading_day
+
+// Entry execution
+if buy_signal
+    strategy.entry("BTST", strategy.long)
+    entry_price := close
+    entry_time := time
+    position_active := true
+
+// Exit execution
+if sell_signal
+    strategy.close("BTST", comment="Next Day Exit")
+    entry_price := na
+    entry_time := na
+    position_active := false
+
+// Risk management - Enhanced stop loss and targets
+if strategy.position_size > 0 and not na(entry_price)
+    
+    // Trailing stop loss after Target 1
+    profit_pct = (close - entry_price) / entry_price * 100
+    
+    // Initial stop loss
+    stop_price = entry_price * (1 - stop_loss/100)
+    
+    // Target 1 - Partial exit
+    target1_price = entry_price * (1 + target1/100)
+    
+    // Target 2 - Full exit
+    target2_price = entry_price * (1 + target2/100)
+    
+    // Stop loss exit
+    if close <= stop_price
+        strategy.close("BTST", comment="Stop Loss")
+        entry_price := na
+        entry_time := na
+        position_active := false
+    
+    // Target 2 hit - Full exit
+    else if close >= target2_price
+        strategy.close("BTST", comment="Target 2 Hit")
+        entry_price := na
+        entry_time := na
+        position_active := false
+    
+    // Target 1 hit - Partial exit and trailing stop
+    else if close >= target1_price and profit_pct >= target1
+        // Move stop to break even after target 1
+        trailing_stop = math.max(stop_price, entry_price * 1.005)  // Breakeven + 0.5%
+        if close <= trailing_stop
+            strategy.close("BTST", comment="Trailing Stop")
+            entry_price := na
+            entry_time := na
+            position_active := false
+    
+    // Emergency exit before market close
+    else if current_time >= 1515 and time_since_entry < 16
+        strategy.close("BTST", comment="Market Close")
+        entry_price := na
+        entry_time := na
+        position_active := false
+    
+    // Risk management - Exit if major trend reverses
+    else if close < ema21 and close < close[1] and rsi < 30
+        strategy.close("BTST", comment="Major Reversal")
+        entry_price := na
+        entry_time := na
+        position_active := false
+
+// Alerts for automation
+alertcondition(buy_signal, "Enhanced BTST Buy", "BTST: Strong Buy signal for {{ticker}} at ₹{{close}}")
+alertcondition(sell_signal, "Enhanced BTST Sell", "BTST: Exit signal for {{ticker}} at ₹{{close}}")
+alertcondition(strategy.position_size > 0 and close >= entry_price * (1 + target1/100), "Target 1 Hit", "BTST: Target 1 reached for {{ticker}}")
+alertcondition(strategy.position_size > 0 and close >= entry_price * (1 + target2/100), "Target 2 Hit", "BTST: Target 2 reached for {{ticker}}")
