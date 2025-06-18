@@ -1,0 +1,64 @@
+//@version=5
+strategy("BTST Master", overlay=true, process_orders_on_close=true)
+
+// Variables to track state
+var bool in_position = false
+var int entry_bar_index = 0
+
+// Input options for entry and exit times
+entry_hour = input.int(15, "Entry Hour (24h format)", minval=0, maxval=23, group="Entry Settings")
+entry_minute = input.int(15, "Entry Minute", minval=0, maxval=59, group="Entry Settings")
+exit_hour = input.int(9, "Exit Hour (24h format)", minval=0, maxval=23, group="Exit Settings")
+exit_minute = input.int(15, "Exit Minute", minval=0, maxval=59, group="Exit Settings")
+
+// Trade direction option
+trade_direction = input.string("Long", "Trade Direction", options=["Long", "Short"], group="Trade Settings")
+
+// Get current time in IST
+current_hour = hour(time, "Asia/Kolkata")
+current_minute = minute(time, "Asia/Kolkata")
+
+// Define exact times based on inputs
+entry_condition = current_hour == entry_hour and current_minute == entry_minute
+exit_condition = current_hour == exit_hour and current_minute == exit_minute
+
+// ENTRY LOGIC: Enter at specified time only if not already in position
+if entry_condition and not in_position
+    if trade_direction == "Long"
+        strategy.entry("LONG", strategy.long)
+    else
+        strategy.entry("SHORT", strategy.short)
+    
+    in_position := true
+    entry_bar_index := bar_index
+    
+    // Visual marker
+    entry_label = trade_direction + " ENTRY\n" + str.tostring(entry_hour) + ":" + 
+                  (entry_minute < 10 ? "0" + str.tostring(entry_minute) : str.tostring(entry_minute))
+    label.new(bar_index, trade_direction == "Long" ? low : high, entry_label, 
+              color=color.green, 
+              style=trade_direction == "Long" ? label.style_label_up : label.style_label_down, 
+              textcolor=color.white, size=size.normal)
+
+// EXIT LOGIC: Exit at specified time only if in position AND after entry bar
+if exit_condition and in_position and bar_index > entry_bar_index
+    if trade_direction == "Long"
+        strategy.close("LONG")
+    else
+        strategy.close("SHORT")
+    
+    in_position := false
+    
+    // Visual marker
+    exit_label = "EXIT\n" + str.tostring(exit_hour) + ":" + 
+                 (exit_minute < 10 ? "0" + str.tostring(exit_minute) : str.tostring(exit_minute))
+    label.new(bar_index, high, exit_label, 
+              color=color.red, style=label.style_label_down, 
+              textcolor=color.white, size=size.normal)
+
+// Visual background
+bgcolor(entry_condition and not in_position ? color.new(color.green, 80) : na)
+bgcolor(exit_condition and in_position and bar_index > entry_bar_index ? color.new(color.red, 80) : na)
+
+// Position status
+plotchar(in_position, "Position", "●", location.top, color=color.yellow, size=size.small)
