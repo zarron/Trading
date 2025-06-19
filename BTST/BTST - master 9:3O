@@ -1,5 +1,5 @@
 //@version=5
-strategy("BTST - master 9:3O)", overlay=true, process_orders_on_close=true)
+strategy("BTST - Balanced v2.0", overlay=true, process_orders_on_close=true)
 
 var bool in_position = false
 var int entry_bar_index = 0
@@ -7,14 +7,9 @@ var int entry_bar_index = 0
 // ==== INPUTS ====
 exit_hour = input.int(9, "Exit Hour", minval=0, maxval=23)
 exit_minute = input.int(15, "Exit Minute", minval=0, maxval=59)
-
 volume_multiplier = input.float(1.3, "Volume Multiplier", minval=1.0, maxval=3.0)
-volume_consistency = input.int(2, "Volume Bars", minval=1, maxval=3)
 avg_volume_period = input.int(15, "Avg Volume Period", minval=10, maxval=25)
-
 trend_strength = input.float(0.25, "Trend Strength (% of ATR)", minval=0.1, maxval=1.0)
-price_momentum_bars = input.int(2, "Price Momentum Bars", minval=1, maxval=4)
-
 use_fakeout_filter = input.bool(true, "Use False Breakout Filter")
 
 // ==== TIME WINDOW ====
@@ -30,42 +25,71 @@ vwap = ta.vwap
 atr = ta.atr(14)
 ema9 = ta.ema(close, 9)
 ema20 = ta.ema(close, 20)
+rsi = ta.rsi(close, 14)
+
 ema_trend_up = ema9 > ema20
 
-// ==== VOLUME CONDITIONS (Relaxed) ====
+// ==== IMPROVED VOLUME CONDITIONS ====
 avg_vol = ta.sma(volume, avg_volume_period)
-sustained_volume = volume > avg_vol * 1.05
+
+// Primary volume conditions (only need 1 of 3)
 volume_surge = volume > avg_vol * volume_multiplier
-volume_stronger = volume > avg_vol * 1.05 and volume > volume[1]
-vol_price_sync = close > close[1] or volume > (volume[1] + volume[2]) / 2
+sustained_volume = volume > avg_vol * 1.1
+increasing_volume = volume > volume[1]
 
-// Relaxed volume pass: any 2 of 3 volume confirmations
-volume_pass = ( (sustained_volume and volume_surge) or (sustained_volume and volume_stronger) or (volume_surge and vol_price_sync) )
+volume_pass = volume_surge or sustained_volume or increasing_volume
 
-// ==== UPTREND CONDITIONS ====
+// ==== IMPROVED UPTREND CONDITIONS ====
+// Basic price action
 higher_high = high > high[1]
-price_momentum = close > close[price_momentum_bars]
+price_momentum = close > close[2] or close > close[1]
 vwap_support = close > vwap
-green_body = close > open
-price_strength = (close - low) > atr * trend_strength or close > close[1]
+green_candle = close > open
 
-uptrend_pass = (higher_high or price_momentum) and (vwap_support or price_strength or green_body)
+// Price strength (relaxed)
+price_strength = (close - low) > atr * trend_strength or close > open
 
-// ==== FALSE BREAKOUT FILTER ====
-prior_vol_spike = volume[1] > avg_vol * 2.2
-prior_fake_green = close[1] < high[1] - (high[1] - low[1]) * 0.4
-no_follow_through = close < close[1]
-avoid_fake_breakout = not (prior_vol_spike and prior_fake_green and no_follow_through)
+uptrend_pass = (higher_high or price_momentum) and (vwap_support or green_candle) and price_strength
+
+// ==== SMART FALSE BREAKOUT FILTER ====
+// Simple but effective false breakout detection
+recent_high = ta.highest(high, 4)  // Reduced from 5 to 4 bars
+breakout_confirmed = high > recent_high[1]
+
+// Volume support for moves
+volume_supported = volume > avg_vol * 0.9  // Very lenient volume requirement
+
+// Avoid obvious fake patterns
+prev_fake_signal = false
+if barstate.isconfirmed[1]
+    // Only flag very obvious fakes: huge volume spike with weak close
+    obvious_fake = volume[1] > avg_vol[1] * 2.5 and close[1] < (high[1] + low[1]) / 2
+    prev_fake_signal := obvious_fake
+
+// No immediate weakness after breakout attempt
+no_immediate_weakness = not (close < close[1] * 0.995 and volume < avg_vol * 0.8)
+
+// Simplified false breakout filter
+avoid_fake_breakout = breakout_confirmed and volume_supported and not prev_fake_signal and no_immediate_weakness
+
+// ==== TREND QUALITY (Optional Enhancement) ====
+// Light trend filter - only avoid obvious downtrends
+basic_trend_ok = ema9 >= ema20 * 0.998  // Very small buffer
+
+// RSI not severely overbought
+rsi_not_extreme = rsi < 80
+
+trend_quality_ok = basic_trend_ok and rsi_not_extreme
 
 // ==== FINAL ENTRY CONDITION ====
 entry_signal = in_entry_window 
              and volume_pass 
              and uptrend_pass 
-             and ema_trend_up 
+             and trend_quality_ok
              and (use_fakeout_filter ? avoid_fake_breakout : true)
 
 // ==== ENTRY ====
-if entry_signal
+if entry_signal and not in_position
     strategy.entry("LONG", strategy.long)
     in_position := true
     entry_bar_index := bar_index
@@ -74,6 +98,7 @@ if entry_signal
 
 // ==== EXIT ====
 exit_now = cur_hr == exit_hour and cur_min == exit_minute
+
 if exit_now and in_position and bar_index > entry_bar_index
     strategy.close("LONG")
     in_position := false
@@ -83,4 +108,4 @@ if exit_now and in_position and bar_index > entry_bar_index
 // ==== VISUALS ====
 bgcolor(entry_signal ? color.new(color.green, 85) : na)
 bgcolor(exit_now and in_position ? color.new(color.red, 85) : na)
-barcolor(volume > avg_vol * volume_multiplier ? color.green : volume > avg_vol * 1.05 ? color.orange : na)
+barcolor(volume > avg_vol * volume_multiplier ? color.green : volume > avg_vol * 1.1 ? color.orange : na)
