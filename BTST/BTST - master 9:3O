@@ -1,0 +1,86 @@
+//@version=5
+strategy("BTST - master 9:3O)", overlay=true, process_orders_on_close=true)
+
+var bool in_position = false
+var int entry_bar_index = 0
+
+// ==== INPUTS ====
+exit_hour = input.int(9, "Exit Hour", minval=0, maxval=23)
+exit_minute = input.int(15, "Exit Minute", minval=0, maxval=59)
+
+volume_multiplier = input.float(1.3, "Volume Multiplier", minval=1.0, maxval=3.0)
+volume_consistency = input.int(2, "Volume Bars", minval=1, maxval=3)
+avg_volume_period = input.int(15, "Avg Volume Period", minval=10, maxval=25)
+
+trend_strength = input.float(0.25, "Trend Strength (% of ATR)", minval=0.1, maxval=1.0)
+price_momentum_bars = input.int(2, "Price Momentum Bars", minval=1, maxval=4)
+
+use_fakeout_filter = input.bool(true, "Use False Breakout Filter")
+
+// ==== TIME WINDOW ====
+cur_hr = hour(time, "Asia/Kolkata")
+cur_min = minute(time, "Asia/Kolkata")
+cur_min_total = cur_hr * 60 + cur_min
+
+// Entry window: 2:20 PM (860) to 2:55 PM (895)
+in_entry_window = cur_min_total >= 860 and cur_min_total <= 895
+
+// ==== INDICATORS ====
+vwap = ta.vwap
+atr = ta.atr(14)
+ema9 = ta.ema(close, 9)
+ema20 = ta.ema(close, 20)
+ema_trend_up = ema9 > ema20
+
+// ==== VOLUME CONDITIONS (Relaxed) ====
+avg_vol = ta.sma(volume, avg_volume_period)
+sustained_volume = volume > avg_vol * 1.05
+volume_surge = volume > avg_vol * volume_multiplier
+volume_stronger = volume > avg_vol * 1.05 and volume > volume[1]
+vol_price_sync = close > close[1] or volume > (volume[1] + volume[2]) / 2
+
+// Relaxed volume pass: any 2 of 3 volume confirmations
+volume_pass = ( (sustained_volume and volume_surge) or (sustained_volume and volume_stronger) or (volume_surge and vol_price_sync) )
+
+// ==== UPTREND CONDITIONS ====
+higher_high = high > high[1]
+price_momentum = close > close[price_momentum_bars]
+vwap_support = close > vwap
+green_body = close > open
+price_strength = (close - low) > atr * trend_strength or close > close[1]
+
+uptrend_pass = (higher_high or price_momentum) and (vwap_support or price_strength or green_body)
+
+// ==== FALSE BREAKOUT FILTER ====
+prior_vol_spike = volume[1] > avg_vol * 2.2
+prior_fake_green = close[1] < high[1] - (high[1] - low[1]) * 0.4
+no_follow_through = close < close[1]
+avoid_fake_breakout = not (prior_vol_spike and prior_fake_green and no_follow_through)
+
+// ==== FINAL ENTRY CONDITION ====
+entry_signal = in_entry_window 
+             and volume_pass 
+             and uptrend_pass 
+             and ema_trend_up 
+             and (use_fakeout_filter ? avoid_fake_breakout : true)
+
+// ==== ENTRY ====
+if entry_signal
+    strategy.entry("LONG", strategy.long)
+    in_position := true
+    entry_bar_index := bar_index
+    label.new(bar_index, low, "BUY\n" + str.tostring(cur_hr) + ":" + str.tostring(cur_min), 
+              color=color.green, textcolor=color.white, style=label.style_label_up, size=size.small)
+
+// ==== EXIT ====
+exit_now = cur_hr == exit_hour and cur_min == exit_minute
+if exit_now and in_position and bar_index > entry_bar_index
+    strategy.close("LONG")
+    in_position := false
+    label.new(bar_index, high, "EXIT", 
+              color=color.red, textcolor=color.white, style=label.style_label_down, size=size.small)
+
+// ==== VISUALS ====
+bgcolor(entry_signal ? color.new(color.green, 85) : na)
+bgcolor(exit_now and in_position ? color.new(color.red, 85) : na)
+barcolor(volume > avg_vol * volume_multiplier ? color.green : volume > avg_vol * 1.05 ? color.orange : na)
