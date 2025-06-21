@@ -1,0 +1,47 @@
+//@version=5
+strategy("BTST v5.0 - EMA20/50 & RVOL10 with RSI Exit", overlay=true, process_orders_on_close=true, max_bars_back=500)
+
+// === STATE VARIABLES ===
+var bool in_position = false
+var int entry_bar_index = 0
+var float entry_price = na
+
+// === INPUTS ===
+ema_short_period = input.int(20, "EMA Short Period", minval=1)
+ema_long_period = input.int(50, "EMA Long Period", minval=1)
+rvol_period = input.int(9, "RVOL Period", minval=1)
+rvol_threshold = input.float(1.0, "RVOL Entry Threshold", minval=0.5)
+stop_loss_pct = input.float(2.0, "Stop Loss %", minval=0.1, step=0.1)
+entry_time_frame = input.session("0930-1430", "Entry Time Frame", tooltip="Time window for entries (9:30 AM - 2:30 PM IST)")
+rsi_period = input.int(14, "RSI Period for Exit")
+
+// === CALCULATIONS ===
+ema_short = ta.ema(close, ema_short_period)
+ema_long = ta.ema(close, ema_long_period)
+avg_vol = ta.sma(volume, rvol_period)
+rvol9 = avg_vol > 0 ? volume / avg_vol : 1.0
+in_entry_time_frame = time(timeframe.period, entry_time_frame)
+stop_loss_price = entry_price * (1 - stop_loss_pct / 100)
+
+// === RSI on 15-minute Timeframe ===
+rsi_15m = request.security(syminfo.tickerid, "15", ta.rsi(close, rsi_period))
+rsi_exit = rsi_15m < 40
+
+// === ENTRY CONDITION ===
+entry_signal = ta.crossover(ema_short, ema_long) and rvol9 > rvol_threshold and in_entry_time_frame and not in_position
+
+// === EXIT CONDITION ===
+exit_time = time(timeframe.period, "0930-0945")
+exit_signal = in_position and (exit_time or close < stop_loss_price or rsi_exit)
+
+// === ENTRY ===
+if entry_signal
+    strategy.entry("LONG", strategy.long)
+    in_position := true
+    entry_bar_index := bar_index
+    entry_price := close
+
+// === EXIT ===
+if exit_signal
+    strategy.close("LONG")
+    in_position := false
