@@ -1,0 +1,21 @@
+//@version=5
+strategy("Relaxed Gap Up + Inside Bar Breakout", overlay=true)
+
+// === Inputs ===
+gapThreshold = input.float(0.002, title="Gap % Threshold (e.g., 0.2%)", step=0.001)
+
+// === Gap Up Detection ===
+prevClose = close[1]
+gapUp = open >= prevClose * (1 + gapThreshold)  // Relaxed: '>='
+
+insideBar = high[1] <= high[2] and low[1] >= low[2]  // Relaxed: allow equal high/low
+breakout = close >= high[1]  // Relaxed: '>='
+
+entryCondition = gapUp and insideBar and breakout
+
+if (entryCondition)
+    strategy.entry("GapInsideBuy", strategy.long)
+
+// === Exit after 1 trading day ===
+exitAfter1Day = time - strategy.opentrades.entry_time(0) > 24 * 60 * 60 * 1000
+strategy.close("GapInsideBuy", when=exitAfter1Day)
