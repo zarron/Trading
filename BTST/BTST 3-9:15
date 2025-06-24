@@ -1,0 +1,57 @@
+//@version=5
+strategy("BTST Master", overlay=true, process_orders_on_close=true)
+
+// Variables to track state
+var bool in_position = false
+var int entry_bar_index = 0
+
+// Input options for entry and exit times
+entry_hour = input.int(15, "Entry Hour (24h format)", minval=0, maxval=23, group="Entry Settings")
+entry_minute = input.int(0, "Entry Minute", minval=0, maxval=59, group="Entry Settings")
+exit_hour = input.int(9, "Exit Hour (24h format)", minval=0, maxval=23, group="Exit Settings")
+exit_minute = input.int(15, "Exit Minute", minval=0, maxval=59, group="Exit Settings")
+
+// Get current time in IST
+current_hour = hour(time, "Asia/Kolkata")
+current_minute = minute(time, "Asia/Kolkata")
+
+// Calculate day high
+day_high = request.security(syminfo.tickerid, "1D", high[1])
+
+// Define exact times based on inputs
+entry_time_condition = current_hour == entry_hour and current_minute == entry_minute
+exit_time_condition = current_hour == exit_hour and current_minute == exit_minute
+
+// Entry condition: 3PM close above day high
+entry_condition = entry_time_condition and close > day_high
+
+// ENTRY LOGIC: Enter long at 3PM close if close is above day high
+if entry_condition and not in_position
+    strategy.entry("LONG", strategy.long)
+    in_position := true
+    entry_bar_index := bar_index
+    
+    // Visual marker
+    entry_label = "LONG ENTRY\n3:00 PM\nClose > Day High"
+    label.new(bar_index, low, entry_label, 
+              color=color.green, 
+              style=label.style_label_up, 
+              textcolor=color.white, size=size.normal)
+
+// EXIT LOGIC: Exit at 9:15 AM opening price
+if exit_time_condition and in_position and bar_index > entry_bar_index
+    strategy.close("LONG")
+    in_position := false
+    
+    // Visual marker
+    exit_label = "EXIT\n9:15 AM\nAt Open Price"
+    label.new(bar_index, high, exit_label, 
+              color=color.red, style=label.style_label_down, 
+              textcolor=color.white, size=size.normal)
+
+// Visual background
+bgcolor(entry_condition and not in_position ? color.new(color.green, 80) : na)
+bgcolor(exit_time_condition and in_position and bar_index > entry_bar_index ? color.new(color.red, 80) : na)
+
+// Position status
+plotchar(in_position, "Position", "●", location.top, color=color.yellow, size=size.small)
